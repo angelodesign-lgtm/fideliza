@@ -64,6 +64,7 @@ type AdminEstablishment = {
   business_type: string | null;
   address: string | null;
   phone: string | null;
+  cnpj: string | null;
   is_public: boolean;
   is_approved: boolean;
   moderation_status: 'pending' | 'approved' | 'rejected' | 'suspended';
@@ -264,7 +265,7 @@ export default function App() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [resetEmailSent, setResetEmailSent] = useState(false);
+  const [, setResetEmailSent] = useState(false);
   const [deletingEstablishmentId, setDeletingEstablishmentId] = useState<string | null>(null);
   const [fullName, setFullName] = useState('');
   const [signupRole, setSignupRole] = useState<'cliente' | 'lojista'>('lojista');
@@ -315,7 +316,6 @@ export default function App() {
   const [billingPaymentAmount, setBillingPaymentAmount] = useState('19.90');
   const [billingPaymentReference, setBillingPaymentReference] = useState('');
   const [billingSelectedSubscription, setBillingSelectedSubscription] = useState('');
-  const [billingDueDate, setBillingDueDate] = useState('');
 
   // Indicadores do painel: todos filtrados para o estabelecimento atual.
   useEffect(() => {
@@ -331,10 +331,10 @@ export default function App() {
         supabase.from('loyalty_transactions')
           .select('customer_id, stamps_earned')
           .eq('establishment_id', business.id),
-        supabase.from('cashback_transactions')
+          supabase.from('cashback_transactions')
           .select('amount, transaction_type')
           .eq('establishment_id', business.id)
-          .eq('transaction_type', 'credito'),
+          .eq('transaction_type', 'credit'),
       ]);
       if (cancelled) return;
       if (purchasesResult.error || cashbackResult.error) {
@@ -389,7 +389,7 @@ export default function App() {
     setDeletingCustomerBusy(true);
     setDeletingCustomerId(customer.customer_id);
     setMerchantCustomersError('');
-    const { data, error } = await supabase.rpc('fideliza_delete_customer_from_establishment', {
+    const { error } = await supabase.rpc('fideliza_delete_customer_from_establishment', {
       p_establishment_id: business.id,
       p_customer_id: customer.customer_id,
     });
@@ -612,8 +612,9 @@ export default function App() {
 
         const [{ data: establishments, error: establishmentsError }, { data: programs, error: programsError }, { data: redemptions, error: redemptionsError }, { data: cashbackRows, error: cashbackError }] = await Promise.all([
           supabase.from('establishments').select('id, name, business_type').in('id', establishmentIds),
-          supabase.from('loyalty_programs').select('establishment_id, name, stamps_required, reward_description, active, cashback_percent').in('establishment_id', establishmentIds),
-          supabase.from('loyalty_redemptions').select('establishment_id, stamps_used').eq('customer_id', session.user.id).in('establishment_id', establishmentIds),
+          supabase.from('loyalty_programs')
+  .select('establishment_id, name, stamps_required, reward_description, active, cashback_percent, benefit_type')
+  .in('establishment_id', establishmentIds),
           supabase.from('cashback_transactions').select('id, establishment_id, transaction_type, amount, description, created_at').eq('customer_id', session.user.id).order('created_at', { ascending: false }),
         ]);
         if (establishmentsError) throw establishmentsError;
@@ -630,7 +631,19 @@ export default function App() {
             establishment_name: store?.name ?? 'Estabelecimento participante',
             business_type: store?.business_type ?? null,
             stamps_balance: Math.max(0, storeTransactions.reduce((sum, row) => sum + Number(row.stamps_earned || 0), 0) - (redemptions ?? []).filter((item) => item.establishment_id === establishmentId).reduce((sum, item) => sum + Number(item.stamps_used || 0), 0)),
-            cashback_balance: Math.max(0, (cashbackRows ?? []).filter((item) => item.establishment_id === establishmentId).reduce((sum, item) => sum + (item.transaction_type === 'credito' ? Number(item.amount || 0) : -Number(item.amount || 0)), 0)),
+            cashback_balance: Math.max(
+              0,
+              (cashbackRows ?? [])
+                .filter((item) => item.establishment_id === establishmentId)
+                .reduce((acc, item) => {
+                  const isCredit =
+                    item.transaction_type === 'credit' ||
+                    item.transaction_type === 'credito';
+                  return isCredit
+                    ? acc + Number(item.amount || 0)
+                    : acc - Number(item.amount || 0);
+                }, 0),
+            ),
             purchases_count: storeTransactions.length,
             total_spent: storeTransactions.reduce((sum, row) => sum + Number(row.amount || 0), 0),
             last_purchase_at: storeTransactions[0]?.created_at ?? null,
@@ -1169,12 +1182,11 @@ export default function App() {
 
     setLoadingAdmin(true);
 
-    const { data, error } = await supabase
-      .from('establishments')
-      .select(
-        'id, name, business_type, address, phone, is_public, is_approved, moderation_status, created_at',
-      )
-      .order('created_at', { ascending: false });
+    // A função SQL reúne os estabelecimentos com o CNPJ do perfil do proprietário,
+    // sem expor os documentos dos perfis a outros usuários.
+    const { data, error } = await supabase.rpc(
+      'fideliza_admin_list_establishments_with_cnpj',
+    );
 
     setLoadingAdmin(false);
 
@@ -1686,6 +1698,56 @@ export default function App() {
   if ((!session || mode === 'recovery') && authVisible) {
     return (
       <main className="auth-shell">
+        <style>{`
+          :root {
+            --fideliza-navy: #062b52;
+            --fideliza-blue: #0b3c70;
+            --fideliza-yellow: #ffca05;
+            --fideliza-pale: #f1f6fc;
+          }
+          .auth-shell {
+            min-height: 100vh !important;
+            background: var(--fideliza-pale) !important;
+            color: var(--fideliza-navy) !important;
+          }
+          .auth-intro {
+            background: linear-gradient(145deg, #062b52 0%, #0b3c70 100%) !important;
+            color: #fff !important;
+          }
+          .auth-intro h1, .auth-intro p, .auth-intro .feature-list,
+          .auth-intro .feature-list span, .auth-intro .intro-foot {
+            color: #fff !important;
+          }
+          .auth-intro .eyebrow { color: #ffca05 !important; }
+          .auth-panel { background: #f1f6fc !important; }
+          .auth-card {
+            background: #fff !important;
+            border-color: #d6e3f2 !important;
+            box-shadow: 0 18px 48px rgba(6, 43, 82, 0.10) !important;
+          }
+          .auth-card h2, .auth-card label { color: #062b52 !important; }
+          .auth-card .eyebrow, .auth-card .switch-mode button,
+          .auth-card button:not(.primary-btn) { color: #073568; }
+          .auth-card .muted, .auth-card small.muted { color: #536b87 !important; }
+          .auth-card input, .auth-card select, .auth-card textarea {
+            border-color: #c9d9ec !important;
+            background: #fff !important;
+            color: #062b52 !important;
+          }
+          .auth-card input:focus, .auth-card select:focus, .auth-card textarea:focus {
+            outline-color: #ffca05 !important;
+            border-color: #0b3c70 !important;
+          }
+          .auth-card .primary-btn {
+            background: #062b52 !important;
+            color: #fff !important;
+            border-color: #062b52 !important;
+          }
+          .auth-card .primary-btn:hover { background: #0b3c70 !important; }
+          .auth-card .notice, .auth-card .setup-note {
+            border-color: #c9d9ec !important;
+          }
+        `}</style>
         <section className="auth-intro">
           <div style={{ marginBottom: 22 }}><FidelizaLogo light /></div>
 
@@ -1739,20 +1801,36 @@ export default function App() {
               {mode === 'signup' ? (signupRole === 'cliente' ? 'Crie sua conta para acompanhar suas fidelidades e benefícios.' : 'Cadastre-se para configurar seu negócio.') : mode === 'reset' ? 'Informe seu e-mail e enviaremos instruções para redefinir sua senha.' : mode === 'recovery' ? 'Crie uma senha nova com pelo menos 8 caracteres.' : 'Entre para acessar sua conta.'}
             </p>
 
+            <div className="auth-head">
+  
+  <p>
+    {mode === 'signup'
+      ? 'Escolha seu tipo de conta e informe os dados para começar.'
+      : mode === 'reset'
+      ? 'Enviaremos um link de redefinição para o seu e-mail.'
+      : mode === 'recovery'
+      ? 'Escolha uma senha nova com pelo menos 8 caracteres.'
+      : 'Acesse com o e-mail e a senha cadastrados.'}
+  </p>
+</div>
             <form onSubmit={handleAuth} className="stack">
-              {mode === 'signup' && (
-                <fieldset style={{ border: '1px solid #d6e3f2', borderRadius: 12, padding: 14, margin: '0 0 4px' }}>
-                  <legend style={{ padding: '0 6px', fontWeight: 700 }}>Como você vai usar o Fideliza?</legend>
-                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 12, cursor: 'pointer' }}>
-                    <input type="radio" name="signupRole" value="cliente" checked={signupRole === 'cliente'} onChange={() => setSignupRole('cliente')} style={{ marginTop: 4 }} />
-                    <span><strong>Sou cliente</strong><br /><small className="muted">Quero acompanhar meus pontos e benefícios.</small></span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
-                    <input type="radio" name="signupRole" value="lojista" checked={signupRole === 'lojista'} onChange={() => setSignupRole('lojista')} style={{ marginTop: 4 }} />
-                    <span><strong>Sou lojista</strong><br /><small className="muted">Quero cadastrar e administrar meu estabelecimento.</small></span>
-                  </label>
-                </fieldset>
-              )}
+            {mode === 'signup' && (
+  <div style={{ margin: '0 0 4px' }}>
+    <p style={{ margin: '0 0 8px', fontSize: 12, fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#536b87' }}>
+      Como você vai usar o Fideliza?
+    </p>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 10 }}>
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 44, padding: '10px 12px', border: `1px solid ${signupRole === 'cliente' ? '#092f57' : '#d6e3f2'}`, borderRadius: 10, background: signupRole === 'cliente' ? '#eef4fb' : '#fff', fontSize: 14, fontWeight: 600, color: '#092f57', cursor: 'pointer', boxSizing: 'border-box' }}>
+        <input type="radio" name="signupRole" value="cliente" checked={signupRole === 'cliente'} onChange={() => setSignupRole('cliente')} style={{ margin: 0, accentColor: '#092f57' }} />
+        <span>Sou cliente</span>
+      </label>
+      <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, minHeight: 44, padding: '10px 12px', border: `1px solid ${signupRole === 'lojista' ? '#092f57' : '#d6e3f2'}`, borderRadius: 10, background: signupRole === 'lojista' ? '#eef4fb' : '#fff', fontSize: 14, fontWeight: 600, color: '#092f57', cursor: 'pointer', boxSizing: 'border-box' }}>
+        <input type="radio" name="signupRole" value="lojista" checked={signupRole === 'lojista'} onChange={() => setSignupRole('lojista')} style={{ margin: 0, accentColor: '#092f57' }} />
+        <span>Sou lojista</span>
+      </label>
+    </div>
+  </div>
+)}
 
               {mode === 'signup' && (
                 <label>
@@ -1794,7 +1872,12 @@ export default function App() {
                   Plano de assinatura
                   <select value={signupPlanId} onChange={event => setSignupPlanId(event.target.value)} required disabled={signupAvailablePlans.length === 0}>
                     <option value="">{signupAvailablePlans.length ? 'Selecione um plano' : 'Carregando planos disponíveis…'}</option>
-                    {signupAvailablePlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name} — {Number(plan.period_price ?? plan.monthly_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} / {plan.billing_cycle === 'semestral' ? '6 meses' : plan.billing_cycle === 'anual' ? 'ano' : 'mês'} ({plan.trial_days} dias grátis)</option>)}
+                    {signupAvailablePlans.map(plan => (
+  <option key={plan.id} value={plan.id}>
+    {plan.name} · {Number(plan.period_price ?? plan.monthly_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/{plan.billing_cycle === 'semestral' ? '6m' : plan.billing_cycle === 'anual' ? 'ano' : 'mês'}
+    {plan.trial_days > 0 ? ` · ${plan.trial_days}d grátis` : ''}
+  </option>
+))}
                   </select>
                   <small className="muted">Você poderá solicitar a troca de plano depois. A alteração valerá ao terminar o período atual.</small>
                 </label>
@@ -1940,7 +2023,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
               <p className="muted" style={{ margin: 0 }}>Conheça as lojas aprovadas que já fazem parte do Fideliza.</p>
             </div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 9, border: '1px solid #d6e3f2', borderRadius: 12, padding: '0 13px', background: '#fff', minWidth: 260 }}>
-              <Search size={18} color="#708076" />
+              <Search size={18} color="#536b87" />
               <input aria-label="Buscar estabelecimento" value={publicSearch} onChange={(event) => setPublicSearch(event.target.value)} placeholder="Buscar por nome ou categoria" style={{ border: 0, outline: 0, padding: '13px 0', width: '100%', background: 'transparent' }} />
             </label>
           </div>
@@ -1999,9 +2082,9 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
           )}
         </section>
 
-        <footer style={{ background: '#082b50', color: '#eaf1eb', padding: '28px 20px', textAlign: 'center' }}>
-          <strong style={{ fontSize: 20 }}>fideliza<span style={{ color: '#91c69e' }}>.</span></strong>
-          <p style={{ margin: '8px 0 0', color: '#c5d2c7', fontSize: 13 }}>Conectando pessoas e negócios por meio da fidelidade.</p>
+        <footer style={{ background: '#082b50', color: '#eaf2fb', padding: '28px 20px', textAlign: 'center' }}>
+          <strong style={{ fontSize: 20 }}>fideliza<span style={{ color: '#ffca05' }}>.</span></strong>
+          <p style={{ margin: '8px 0 0', color: '#c9d9ec', fontSize: 13 }}>Conectando pessoas e negócios por meio da fidelidade.</p>
         </footer>
       </main>
     );
@@ -2218,7 +2301,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
             <p className="muted">Plano inicial de R$ 19,90/mês e teste de 30 dias. Atrasos geram avisos, nunca bloqueio automático.</p>
             {billingLoading ? <p>Carregando dados de cobrança…</p> : <>
               {isAdmin && <>
-                <section style={{ margin: '18px 0 22px', padding: 18, border: '1px solid #dbe7de', borderRadius: 14, background: '#f8fbf8' }}>
+                <section style={{ margin: '18px 0 22px', padding: 18, border: '1px solid #dbe7de', borderRadius: 14, background: '#f1f6fc' }}>
                   <div style={{ marginBottom: 14 }}>
                     <h3 style={{ margin: '0 0 5px' }}>{billingEditingPlanId ? 'Editar plano de assinatura' : 'Cadastrar novo plano'}</h3>
                     <p className="muted" style={{ margin: 0 }}>Defina o nome, a duração e o preço total cobrado por período. O teste gratuito permanece em 30 dias.</p>
@@ -2236,8 +2319,8 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
                 </section>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}><div><h3 style={{ marginBottom: 4 }}>Planos cadastrados</h3><p className="muted" style={{ marginTop: 0 }}>Edite, ative, desative ou exclua planos sem vínculos. Planos com histórico devem ser desativados para preservar os dados.</p></div><span className="muted">{billingPlans.length} plano(s)</span></div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(250px,1fr))', gap: 12, marginBottom: 24 }}>
-                  {billingPlans.map(plan => <div key={plan.id} style={{ border: '1px solid #e1e8e3', borderRadius: 12, padding: 16, opacity: plan.is_active ? 1 : 0.78, background: plan.is_active ? '#fff' : '#f7f8f7', boxShadow: '0 2px 8px rgba(20,50,30,0.04)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}><strong>{plan.name}</strong><span style={{ fontSize: 12, padding: '4px 8px', borderRadius: 20, background: plan.is_active ? '#e8f5eb' : '#edf0ed', color: plan.is_active ? '#28613a' : '#5b665e' }}>{plan.is_active ? 'Ativo' : 'Inativo'}</span></div>
+                  {billingPlans.map(plan => <div key={plan.id} style={{ border: '1px solid #d6e3f2', borderRadius: 12, padding: 16, opacity: plan.is_active ? 1 : 0.78, background: plan.is_active ? '#fff' : '#f1f6fc', boxShadow: '0 2px 8px rgba(20,50,30,0.04)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}><strong>{plan.name}</strong><span style={{ fontSize: 12, padding: '4px 8px', borderRadius: 20, background: plan.is_active ? '#eaf2fb' : '#eaf2fb', color: plan.is_active ? '#0b3c70' : '#536b87' }}>{plan.is_active ? 'Ativo' : 'Inativo'}</span></div>
                     <div className="muted" style={{ margin: '7px 0 10px', minHeight: 20 }}>{plan.description || 'Sem descrição.'}</div>
                     <div style={{ fontSize: 22, fontWeight: 750 }}>{Number(plan.period_price ?? plan.monthly_price).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}<small style={{ fontSize: 13, fontWeight: 500 }}> / {plan.billing_cycle === 'semestral' ? '6 meses' : plan.billing_cycle === 'anual' ? '12 meses' : '1 mês'}</small></div>
                     <div className="muted" style={{ marginTop: 5, fontSize: 13 }}>Equivale a {Number(plan.monthly_price).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}/mês · {plan.trial_days} dias grátis</div>
@@ -2246,11 +2329,11 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
                   {billingPlans.length === 0 && <p className="muted">Nenhum plano cadastrado. Use o formulário acima para criar o primeiro.</p>}
                 </div>
                 <h3>Solicitações de alteração de plano</h3>
-                {billingPlanChangeRequests.length === 0 ? <p className="muted">Nenhuma solicitação de alteração de plano recebida.</p> : <div style={{ display: 'grid', gap: 10, marginBottom: 22 }}>{billingPlanChangeRequests.map(request => <article key={request.id} style={{ border: '1px solid #e1e8e3', borderRadius: 12, padding: 14, background: request.status === 'pending' ? '#fff7d6' : '#fff' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}><div><strong>{request.establishments?.name ?? 'Estabelecimento'}</strong><div className="muted">Plano solicitado: {request.fideliza_billing_plans?.name ?? 'Plano não identificado'}</div><small>Solicitado em: {request.created_at ? new Date(request.created_at).toLocaleString('pt-BR') : '—'}</small></div><strong>{request.status === 'pending' ? 'Aguardando análise' : request.status === 'approved' ? 'Aprovada' : 'Rejeitada'}</strong></div>{request.status === 'pending' && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}><button type="button" className="primary-btn" disabled={busy} onClick={() => void decideBillingPlanChange(request.id, 'approved')}>Aprovar solicitação</button><button type="button" className="secondary-btn" disabled={busy} onClick={() => void decideBillingPlanChange(request.id, 'rejected')}>Rejeitar</button></div>}</article>)}</div>}
+                {billingPlanChangeRequests.length === 0 ? <p className="muted">Nenhuma solicitação de alteração de plano recebida.</p> : <div style={{ display: 'grid', gap: 10, marginBottom: 22 }}>{billingPlanChangeRequests.map(request => <article key={request.id} style={{ border: '1px solid #d6e3f2', borderRadius: 12, padding: 14, background: request.status === 'pending' ? '#fff7d6' : '#fff' }}><div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}><div><strong>{request.establishments?.name ?? 'Estabelecimento'}</strong><div className="muted">Plano solicitado: {request.fideliza_billing_plans?.name ?? 'Plano não identificado'}</div><small>Solicitado em: {request.created_at ? new Date(request.created_at).toLocaleString('pt-BR') : '—'}</small></div><strong>{request.status === 'pending' ? 'Aguardando análise' : request.status === 'approved' ? 'Aprovada' : 'Rejeitada'}</strong></div>{request.status === 'pending' && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}><button type="button" className="primary-btn" disabled={busy} onClick={() => void decideBillingPlanChange(request.id, 'approved')}>Aprovar solicitação</button><button type="button" className="secondary-btn" disabled={busy} onClick={() => void decideBillingPlanChange(request.id, 'rejected')}>Rejeitar</button></div>}</article>)}</div>}
                 <h3>Assinaturas por estabelecimento</h3>
                 {billingSubscriptions.filter(sub => getBillingAlert(sub)).length > 0 && <div role="status" style={{ border: '1px solid #edcf8a', background: '#fff8e8', color: '#76520d', borderRadius: 12, padding: 14, marginBottom: 12 }}><strong>{billingSubscriptions.filter(sub => getBillingAlert(sub)).length} assinatura(s) precisam de atenção.</strong><p style={{ margin: '5px 0 0' }}>Há pagamentos pendentes/atrasados ou períodos de teste encerrados. O Fideliza apenas exibe avisos e não bloqueia o acesso automaticamente.</p></div>}
-                <div style={{ display: 'grid', gap: 10 }}>{billingSubscriptions.map(sub => <div key={sub.id} style={{ border: '1px solid #e1e8e3', borderRadius: 12, padding: 14 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}><div><strong>{sub.establishments?.name ?? 'Estabelecimento'}</strong><div className="muted">{sub.fideliza_billing_plans?.name ?? 'Plano'} · {Number(sub.period_price ?? sub.monthly_price).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} / {sub.billing_cycle === 'semestral' ? '6 meses' : sub.billing_cycle === 'anual' ? 'ano' : 'mês'}</div><small>Teste até: {sub.trial_ends_at ? new Date(sub.trial_ends_at).toLocaleDateString('pt-BR') : '—'} · Vencimento: {sub.due_date ? new Date(`${sub.due_date}T12:00:00`).toLocaleDateString('pt-BR') : 'não definido'}</small></div><div style={{ display: 'grid', gap: 8, minWidth: 190 }}><label>Plano<select aria-label="Plano da assinatura" value={sub.plan_id ?? ''} onChange={e => { const selectedPlan = billingPlans.find(plan => plan.id === e.target.value); if (selectedPlan) updateBillingSubscription(sub.id, { plan_id: selectedPlan.id, monthly_price: selectedPlan.monthly_price, billing_cycle: selectedPlan.billing_cycle, period_months: selectedPlan.period_months, period_price: selectedPlan.period_price }); }}><option value="">Selecione um plano</option>{billingPlans.filter(plan => plan.is_active).map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></label><label>Status<select aria-label="Status da assinatura" value={sub.status} onChange={e => updateBillingSubscription(sub.id,{status:e.target.value})}><option value="trial">Em teste</option><option value="active">Ativa</option><option value="pending">Pendente</option><option value="overdue">Atrasada</option><option value="cancelled">Cancelada</option></select></label></div></div>{getBillingAlert(sub) && <div style={{ marginTop: 10, border: '1px solid #edcf8a', background: '#fff8e8', color: '#76520d', borderRadius: 9, padding: 10 }}><strong>{getBillingAlert(sub)?.label}</strong><div style={{ fontSize: 13 }}>{getBillingAlert(sub)?.detail} Nenhum bloqueio automático será aplicado.</div></div>}<div style={{ marginTop: 10 }}><label>Próximo vencimento<input type="date" value={sub.due_date ?? ''} onChange={e => setBillingSubscriptions(curr => curr.map(x => x.id === sub.id ? {...x, due_date:e.target.value} : x))} /></label><button type="button" className="secondary-btn" onClick={() => updateBillingSubscription(sub.id,{due_date:sub.due_date || null})}>Salvar vencimento</button></div></div>)}</div>
-                <form onSubmit={saveBillingPayment} style={{ marginTop: 24, padding: 16, border: '1px solid #e1e8e3', borderRadius: 12 }}>
+                <div style={{ display: 'grid', gap: 10 }}>{billingSubscriptions.map(sub => <div key={sub.id} style={{ border: '1px solid #d6e3f2', borderRadius: 12, padding: 14 }}><div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}><div><strong>{sub.establishments?.name ?? 'Estabelecimento'}</strong><div className="muted">{sub.fideliza_billing_plans?.name ?? 'Plano'} · {Number(sub.period_price ?? sub.monthly_price).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} / {sub.billing_cycle === 'semestral' ? '6 meses' : sub.billing_cycle === 'anual' ? 'ano' : 'mês'}</div><small>Teste até: {sub.trial_ends_at ? new Date(sub.trial_ends_at).toLocaleDateString('pt-BR') : '—'} · Vencimento: {sub.due_date ? new Date(`${sub.due_date}T12:00:00`).toLocaleDateString('pt-BR') : 'não definido'}</small></div><div style={{ display: 'grid', gap: 8, minWidth: 190 }}><label>Plano<select aria-label="Plano da assinatura" value={sub.plan_id ?? ''} onChange={e => { const selectedPlan = billingPlans.find(plan => plan.id === e.target.value); if (selectedPlan) updateBillingSubscription(sub.id, { plan_id: selectedPlan.id, monthly_price: selectedPlan.monthly_price, billing_cycle: selectedPlan.billing_cycle, period_months: selectedPlan.period_months, period_price: selectedPlan.period_price }); }}><option value="">Selecione um plano</option>{billingPlans.filter(plan => plan.is_active).map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}</select></label><label>Status<select aria-label="Status da assinatura" value={sub.status} onChange={e => updateBillingSubscription(sub.id,{status:e.target.value})}><option value="trial">Em teste</option><option value="active">Ativa</option><option value="pending">Pendente</option><option value="overdue">Atrasada</option><option value="cancelled">Cancelada</option></select></label></div></div>{getBillingAlert(sub) && <div style={{ marginTop: 10, border: '1px solid #edcf8a', background: '#fff8e8', color: '#76520d', borderRadius: 9, padding: 10 }}><strong>{getBillingAlert(sub)?.label}</strong><div style={{ fontSize: 13 }}>{getBillingAlert(sub)?.detail} Nenhum bloqueio automático será aplicado.</div></div>}<div style={{ marginTop: 10 }}><label>Próximo vencimento<input type="date" value={sub.due_date ?? ''} onChange={e => setBillingSubscriptions(curr => curr.map(x => x.id === sub.id ? {...x, due_date:e.target.value} : x))} /></label><button type="button" className="secondary-btn" onClick={() => updateBillingSubscription(sub.id,{due_date:sub.due_date || null})}>Salvar vencimento</button></div></div>)}</div>
+                <form onSubmit={saveBillingPayment} style={{ marginTop: 24, padding: 16, border: '1px solid #d6e3f2', borderRadius: 12 }}>
                   <h3>Registrar pagamento via Pix</h3>
                   <label>Estabelecimento / assinatura<select required value={billingSelectedSubscription} onChange={e => { setBillingSelectedSubscription(e.target.value); const sub = billingSubscriptions.find(x => x.id === e.target.value); if (sub) { const scheduledPlan = sub.pending_plan_id ? billingPlans.find(plan => plan.id === sub.pending_plan_id) : null; setBillingPaymentAmount(String(scheduledPlan?.period_price ?? sub.period_price ?? sub.monthly_price)); } }}><option value="">Selecione…</option>{billingSubscriptions.map(sub => <option key={sub.id} value={sub.id}>{sub.establishments?.name ?? sub.establishment_id}</option>)}</select></label>
                   <label>Valor recebido (R$)<input required type="number" min="0.01" step="0.01" value={billingPaymentAmount} onChange={e => setBillingPaymentAmount(e.target.value)} /></label>
@@ -2264,15 +2347,15 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
                   <div className="stat-card"><span>Em teste</span><strong>{billingSubscriptions.filter(s=>s.status==='trial').length}</strong></div>
                 </div>
                 <h3 style={{ marginTop: 24 }}>Pagamentos recentes</h3>
-                {billingPayments.length === 0 ? <p className="muted">Nenhum pagamento registrado ainda.</p> : billingPayments.map(pay => <div key={pay.id} style={{ padding: 10, borderBottom: '1px solid #e1e8e3' }}>{pay.establishments?.name ?? 'Estabelecimento'} — {Number(pay.amount).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} — {new Date(pay.paid_at).toLocaleDateString('pt-BR')} {pay.reference && `· ${pay.reference}`}</div>)}
+                {billingPayments.length === 0 ? <p className="muted">Nenhum pagamento registrado ainda.</p> : billingPayments.map(pay => <div key={pay.id} style={{ padding: 10, borderBottom: '1px solid #d6e3f2' }}>{pay.establishments?.name ?? 'Estabelecimento'} — {Number(pay.amount).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} — {new Date(pay.paid_at).toLocaleDateString('pt-BR')} {pay.reference && `· ${pay.reference}`}</div>)}
               </>}
-              {!isAdmin && billingSubscriptions.map(sub => <div key={sub.id} style={{ border: '1px solid #e1e8e3', borderRadius: 12, padding: 18, marginTop: 16 }}><h3>{sub.fideliza_billing_plans?.name ?? 'Fideliza Mensal'}</h3><strong style={{ fontSize: 28 }}>{Number(sub.period_price ?? sub.monthly_price).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}<small>/{sub.billing_cycle === 'semestral' ? '6 meses' : sub.billing_cycle === 'anual' ? 'ano' : 'mês'}</small></strong><p>Status: <strong>{({trial:'Teste gratuito',active:'Ativa',pending:'Pagamento pendente',overdue:'Pagamento em atraso',cancelled:'Cancelada'} as Record<string,string>)[sub.status] ?? sub.status}</strong></p><p>Fim do teste: {new Date(sub.trial_ends_at).toLocaleDateString('pt-BR')}</p><p>Próximo vencimento: {sub.due_date ? new Date(`${sub.due_date}T12:00:00`).toLocaleDateString('pt-BR') : 'A definir pelo administrador'}</p><p className="muted">Se houver atraso, você receberá um aviso. O acesso ao Fideliza não será bloqueado automaticamente.</p><div style={{ marginTop: 18, padding: 14, background: '#f0f6fd', borderRadius: 10 }}><h4 style={{ marginTop: 0 }}>Alterar plano de assinatura</h4><p className="muted">Escolha outro plano. A mudança será agendada para depois do término do período atual, sem alterar a assinatura vigente.</p><label>Novo plano<select value={merchantPlanSelection || sub.plan_id || ''} onChange={e => setMerchantPlanSelection(e.target.value)}><option value="">Selecione um plano</option>{billingPlans.filter(plan => plan.is_active).map(plan => <option key={plan.id} value={plan.id}>{plan.name} — {Number(plan.period_price ?? plan.monthly_price).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} / {plan.billing_cycle === 'semestral' ? '6 meses' : plan.billing_cycle === 'anual' ? 'ano' : 'mês'}</option>)}</select></label><button type="button" className="primary-btn" onClick={() => void requestMerchantPlanChange(sub)} disabled={!merchantPlanSelection || merchantPlanSelection === sub.plan_id || merchantPlanSelection === sub.pending_plan_id}>Solicitar alteração de plano</button>{sub.pending_plan_id && <p style={{ marginBottom: 0 }}><strong>Alteração agendada:</strong> {billingPlans.find(plan => plan.id === sub.pending_plan_id)?.name ?? 'Novo plano'} · vigência prevista para {sub.pending_plan_effective_at ? new Date(sub.pending_plan_effective_at).toLocaleDateString('pt-BR') : (sub.due_date ? new Date(`${sub.due_date}T12:00:00`).toLocaleDateString('pt-BR') : new Date(sub.trial_ends_at).toLocaleDateString('pt-BR'))}.<br/><small className="muted">O plano atual permanece válido até essa data.</small></p>}</div><h4>Pagamentos registrados</h4>{billingPayments.length ? billingPayments.map(pay=><div key={pay.id} style={{padding:8,borderBottom:'1px solid #e1e8e3'}}>{Number(pay.amount).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} · {new Date(pay.paid_at).toLocaleDateString('pt-BR')} · Pix</div>) : <p className="muted">Nenhum pagamento registrado.</p>}</div>)}
+              {!isAdmin && billingSubscriptions.map(sub => <div key={sub.id} style={{ border: '1px solid #d6e3f2', borderRadius: 12, padding: 18, marginTop: 16 }}><h3>{sub.fideliza_billing_plans?.name ?? 'Fideliza Mensal'}</h3><strong style={{ fontSize: 28 }}>{Number(sub.period_price ?? sub.monthly_price).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}<small>/{sub.billing_cycle === 'semestral' ? '6 meses' : sub.billing_cycle === 'anual' ? 'ano' : 'mês'}</small></strong><p>Status: <strong>{({trial:'Teste gratuito',active:'Ativa',pending:'Pagamento pendente',overdue:'Pagamento em atraso',cancelled:'Cancelada'} as Record<string,string>)[sub.status] ?? sub.status}</strong></p><p>Fim do teste: {new Date(sub.trial_ends_at).toLocaleDateString('pt-BR')}</p><p>Próximo vencimento: {sub.due_date ? new Date(`${sub.due_date}T12:00:00`).toLocaleDateString('pt-BR') : 'A definir pelo administrador'}</p><p className="muted">Se houver atraso, você receberá um aviso. O acesso ao Fideliza não será bloqueado automaticamente.</p><div style={{ marginTop: 18, padding: 14, background: '#f0f6fd', borderRadius: 10 }}><h4 style={{ marginTop: 0 }}>Alterar plano de assinatura</h4><p className="muted">Escolha outro plano. A mudança será agendada para depois do término do período atual, sem alterar a assinatura vigente.</p><label>Novo plano<select value={merchantPlanSelection || sub.plan_id || ''} onChange={e => setMerchantPlanSelection(e.target.value)}><option value="">Selecione um plano</option>{billingPlans.filter(plan => plan.is_active).map(plan => <option key={plan.id} value={plan.id}>{plan.name} — {Number(plan.period_price ?? plan.monthly_price).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} / {plan.billing_cycle === 'semestral' ? '6 meses' : plan.billing_cycle === 'anual' ? 'ano' : 'mês'}</option>)}</select></label><button type="button" className="primary-btn" onClick={() => void requestMerchantPlanChange(sub)} disabled={!merchantPlanSelection || merchantPlanSelection === sub.plan_id || merchantPlanSelection === sub.pending_plan_id}>Solicitar alteração de plano</button>{sub.pending_plan_id && <p style={{ marginBottom: 0 }}><strong>Alteração agendada:</strong> {billingPlans.find(plan => plan.id === sub.pending_plan_id)?.name ?? 'Novo plano'} · vigência prevista para {sub.pending_plan_effective_at ? new Date(sub.pending_plan_effective_at).toLocaleDateString('pt-BR') : (sub.due_date ? new Date(`${sub.due_date}T12:00:00`).toLocaleDateString('pt-BR') : new Date(sub.trial_ends_at).toLocaleDateString('pt-BR'))}.<br/><small className="muted">O plano atual permanece válido até essa data.</small></p>}</div><h4>Pagamentos registrados</h4>{billingPayments.length ? billingPayments.map(pay=><div key={pay.id} style={{padding:8,borderBottom:'1px solid #d6e3f2'}}>{Number(pay.amount).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})} · {new Date(pay.paid_at).toLocaleDateString('pt-BR')} · Pix</div>) : <p className="muted">Nenhum pagamento registrado.</p>}</div>)}
               {!isAdmin && business && <div style={{ marginTop: 18, padding: 16, border: '1px solid #d6e3f2', borderRadius: 12 }}>
                 <h3 style={{ marginTop: 0 }}>{billingSubscriptions.length > 0 ? 'Solicitar alteração de plano' : 'Escolha ou altere seu plano'}</h3>
                 <p className="muted">{billingSubscriptions.length > 0 ? 'Escolha outro plano e envie a solicitação ao administrador. Sua assinatura atual permanece vigente até a análise e a data de vigência definida.' : 'Se sua assinatura já existir no sistema, o Fideliza enviará uma solicitação de alteração. Caso ainda não exista, você poderá selecionar o plano inicial.'}</p>
                 {billingPlans.filter(plan => plan.is_active).length === 0 ? <p className="muted">Não há planos ativos disponíveis no momento. Entre em contato com o administrador.</p> :
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 12 }}>
-                    {billingPlans.filter(plan => plan.is_active).map(plan => <article key={plan.id} style={{ border: '1px solid #e1e8e3', borderRadius: 10, padding: 14 }}>
+                    {billingPlans.filter(plan => plan.is_active).map(plan => <article key={plan.id} style={{ border: '1px solid #d6e3f2', borderRadius: 10, padding: 14 }}>
                       <h4 style={{ margin: '0 0 8px' }}>{plan.name}</h4>
                       <p className="muted" style={{ minHeight: 36 }}>{plan.description || 'Plano Fideliza para seu estabelecimento.'}</p>
                       <strong style={{ fontSize: 22 }}>{Number(plan.period_price ?? plan.monthly_price).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong>
@@ -2380,6 +2463,10 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
                           </p>
                         )}
 
+                        <p className="muted" style={{ margin: '0 0 5px' }}>
+                          CNPJ: {item.cnpj ? item.cnpj.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : 'Não informado'}
+                        </p>
+
                         <small className="muted">
                           Cadastro:{' '}
                           {new Date(
@@ -2394,7 +2481,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
                           padding: '6px 10px',
                           background:
                             item.moderation_status === 'approved'
-                              ? '#e8f7ed'
+                              ? '#eaf2fb'
                               : item.moderation_status ===
                                   'suspended' ||
                                 item.moderation_status === 'rejected'
@@ -2402,7 +2489,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
                                 : '#fff6df',
                           color:
                             item.moderation_status === 'approved'
-                              ? '#216b3a'
+                              ? '#0b3c70'
                               : item.moderation_status ===
                                   'suspended' ||
                                 item.moderation_status === 'rejected'
@@ -2571,13 +2658,13 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
                     {customerLoyaltySummary.map((item) => {
                       const progress = item.stamps_required ? Math.min(100, Math.round((item.stamps_balance / item.stamps_required) * 100)) : 0;
                       return (
-                        <div key={item.establishment_id} style={{ border: '1px solid #e1e9e2', borderRadius: 12, padding: 14, background: '#fbfdfb' }}>
+                        <div key={item.establishment_id} style={{ border: '1px solid #d6e3f2', borderRadius: 12, padding: 14, background: '#f1f6fc' }}>
                           <h4 style={{ margin: '0 0 4px' }}>{item.establishment_name}</h4>
                           {item.program_name && <p className="muted" style={{ margin: '0 0 10px', fontSize: 13 }}>{item.program_name}</p>}
                           {(item.benefit_type === 'pontos' || item.benefit_type === 'ambos') && <p style={{ margin: '6px 0' }}><strong>{item.stamps_balance}</strong>{item.stamps_required ? ` de ${item.stamps_required} selos` : ' selos acumulados'}</p>}
-                          {(item.benefit_type === 'cashback' || item.benefit_type === 'ambos') && <p style={{ margin: '8px 0', padding: '10px 12px', borderRadius: 10, background: '#fff5c2', color: '#2f6d43' }}><strong>Cashback disponível: {item.cashback_balance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></p>}
+                          {(item.benefit_type === 'cashback' || item.benefit_type === 'ambos') && <p style={{ margin: '8px 0', padding: '10px 12px', borderRadius: 10, background: '#fff5c2', color: '#0b3c70' }}><strong>Cashback disponível: {item.cashback_balance.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong></p>}
                           {(item.benefit_type === 'pontos' || item.benefit_type === 'ambos') && item.stamps_required && (
-                            <div style={{ height: 8, background: '#e5ece6', borderRadius: 999, overflow: 'hidden', margin: '8px 0 10px' }}>
+                            <div style={{ height: 8, background: '#d6e3f2', borderRadius: 999, overflow: 'hidden', margin: '8px 0 10px' }}>
                               <div style={{ width: `${progress}%`, height: '100%', background: '#ffbf00', borderRadius: 999 }} />
                             </div>
                           )}
@@ -2598,7 +2685,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
               {loadingCustomerLoyalty ? <p className="muted">Carregando histórico…</p> : customerHistory.length === 0 ? <p className="muted">Seu histórico aparecerá aqui depois da primeira compra ou do primeiro resgate.</p> : (
                 <div style={{ display: 'grid', gap: 10 }}>
                   {customerHistory.slice(0, visibleCustomerHistoryCount).map((item) => (
-                    <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid #edf1ed', padding: '10px 0' }}>
+                    <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, borderBottom: '1px solid #eaf2fb', padding: '10px 0' }}>
                       <div style={{ minWidth: 0 }}>
                         <strong>{item.kind === 'compra' ? 'Compra registrada' : item.kind === 'resgate' ? 'Recompensa resgatada' : (item.amount ?? 0) < 0 ? 'Cashback utilizado' : 'Cashback recebido'}</strong>
                         <p style={{ margin: '3px 0', fontSize: 13 }}>{item.establishment_name}</p>
@@ -2652,7 +2739,7 @@ input:focus, select:focus, textarea:focus { outline-color: var(--fideliza-yellow
             {loadingMerchantCustomers ? <p className="muted">Carregando clientes…</p> : merchantCustomersError ? (
               <div className="notice" role="alert" style={{ background: '#fff0ef', borderColor: '#f2c7c3', color: '#9b3029' }}>{merchantCustomersError}<button type="button" className="secondary-btn" onClick={() => { setMerchantCustomerSearch(current => current); setPage('overview'); setTimeout(() => setPage('customers'), 0); }} style={{ marginLeft: 10 }}>Tentar novamente</button></div>
             ) : filteredMerchantCustomers.length === 0 ? (
-              <div style={{ border: '1px dashed #cbd8ce', borderRadius: 14, padding: 24, textAlign: 'center' }}><Users size={28} /><h3>{merchantCustomers.length === 0 ? 'Ainda não há clientes registrados' : 'Nenhum cliente encontrado'}</h3><p className="muted">{merchantCustomers.length === 0 ? 'Quando uma compra for registrada para um cliente, ele aparecerá aqui.' : 'Tente buscar por outro nome ou telefone.'}</p></div>
+              <div style={{ border: '1px dashed #c9d9ec', borderRadius: 14, padding: 24, textAlign: 'center' }}><Users size={28} /><h3>{merchantCustomers.length === 0 ? 'Ainda não há clientes registrados' : 'Nenhum cliente encontrado'}</h3><p className="muted">{merchantCustomers.length === 0 ? 'Quando uma compra for registrada para um cliente, ele aparecerá aqui.' : 'Tente buscar por outro nome ou telefone.'}</p></div>
             ) : (
               <div style={{ display: 'grid', gap: 12 }}>
                 {filteredMerchantCustomers.map((customer) => {

@@ -349,3 +349,217 @@ button.fz-shortcut > svg {
 @media (max-width: 650px) {
   .fz-shortcuts-grid { grid-template-columns: 1fr !important; }
 }
+/* ---------------------------------------------------------
+   Autenticação — cabeçalho, grupos de campo e avisos
+   --------------------------------------------------------- */
+
+   .auth-head {
+    margin-bottom: 22px;
+  }
+  
+  .auth-head h2 {
+    margin: 0 0 6px;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  
+  .auth-head p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #62706a;
+  }
+  
+  /* Agrupamento de campos com título de seção */
+  .auth-group {
+    display: grid;
+    gap: 14px;
+    padding-top: 18px;
+    margin-top: 18px;
+    border-top: 1px solid #e6ebe7;
+  }
+  
+  .auth-group:first-of-type {
+    padding-top: 0;
+    margin-top: 0;
+    border-top: 0;
+  }
+  
+  .auth-group-label {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #7b8a83;
+  }
+  
+  /* Aviso logo acima do botão de envio */
+  .auth-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 11px 13px;
+    margin: 16px 0 4px;
+    border-radius: 10px;
+    font-size: 13.5px;
+    line-height: 1.45;
+  }
+  
+  .auth-notice.success {
+    background: #eaf6ee;
+    border: 1px solid #c6e5d0;
+    color: #235c37;
+  }
+  
+  .auth-notice.error {
+    background: #fdeeee;
+    border: 1px solid #f0c9c9;
+    color: #8f2727;
+  }
+  
+  /* Seletor de plano com texto legível no mobile */
+  .auth-plan-select {
+    width: 100%;
+    font-size: 15px;
+  }
+  
+  /* Rodapé de troca de modo */
+  .switch-mode {
+    margin-top: 18px;
+    text-align: center;
+    font-size: 14px;
+    color: #5b665e;
+  }
+  
+  .switch-mode button {
+    background: none;
+    border: 0;
+    padding: 0;
+    font: inherit;
+    font-weight: 600;
+    color: #092f57;
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  
+  @media (max-width: 520px) {
+    .auth-head h2 { font-size: 19px; }
+    .auth-group { gap: 12px; }
+  }
+  .auth-head { margin-bottom: 22px; }
+.auth-head h2 { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -0.01em; }
+.auth-head p { margin: 0; font-size: 14px; line-height: 1.5; color: #62706a; }
+
+.auth-group {
+  display: grid; gap: 14px; padding-top: 18px; margin-top: 18px;
+  border-top: 1px solid #e6ebe7;
+}
+.auth-group:first-of-type { padding-top: 0; margin-top: 0; border-top: 0; }
+.auth-group-label {
+  margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
+  text-transform: uppercase; color: #7b8a83;
+}
+
+.auth-notice {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 11px 13px; margin: 16px 0 4px; border-radius: 10px;
+  font-size: 13.5px; line-height: 1.45;
+}
+.auth-notice.success { background: #eaf6ee; border: 1px solid #c6e5d0; color: #235c37; }
+.auth-notice.error   { background: #fdeeee; border: 1px solid #f0c9c9; color: #8f2727; }
+
+.switch-mode { margin-top: 18px; text-align: center; font-size: 14px; color: #5b665e; }
+.switch-mode button {
+  background: none; border: 0; padding: 0; font: inherit; font-weight: 600;
+  color: #092f57; cursor: pointer; text-decoration: underline; text-underline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .auth-head h2 { font-size: 19px; }
+  .auth-group { gap: 12px; }
+}
+/* Container das telas de login e cadastro */
+.setup-card,
+.auth-card,
+.login-card {
+  padding: 34px 30px 28px;
+}
+
+/* Campos ocupam a largura útil, sem encostar na borda */
+.setup-card input,
+.setup-card select,
+.setup-card button[type="submit"],
+.auth-card input,
+.auth-card select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Respiro entre os campos */
+.setup-card .auth-group,
+.auth-card .auth-group {
+  gap: 16px;
+}
+
+/* Links do rodapé com margem real da borda */
+.setup-card .switch-mode,
+.auth-card .switch-mode {
+  margin: 20px 0 6px;
+}
+
+@media (max-width: 520px) {
+  .setup-card,
+  .auth-card,
+  .login-card {
+    padding: 24px 18px 20px;
+  }
+}
+.role-picker-label {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #7b8a83;
+}
+
+.role-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.role-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #d6e3f2;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  color: #092f57;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+
+.role-option input {
+  margin: 0;
+  accent-color: #092f57;
+}
+
+.role-option.selected {
+  border-color: #092f57;
+  background: #eef4fb;
+}
+
+@media (max-width: 400px) {
+  .role-options { grid-template-columns: 1fr; }
+}
