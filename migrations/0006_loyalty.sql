@@ -3,8 +3,8 @@ create table if not exists public.loyalty_programs (
   establishment_id    uuid not null unique references public.establishments(id) on delete cascade,
   name                text not null default 'Programa de Fidelidade',
   stamps_required     integer not null default 10 check (stamps_required > 0),
-  cashback_percentage numeric(5,2) not null default 0
-                      check (cashback_percentage >= 0 and cashback_percentage <= 100),
+  cashback_percent numeric(5,2) not null default 0
+                   check (cashback_percent >= 0 and cashback_percent <= 100),
   benefit_type        text not null default 'ambos'
                       check (benefit_type in ('pontos','cashback','ambos')),
   reward_description  text,
@@ -36,7 +36,7 @@ create table if not exists public.loyalty_redemptions (
   establishment_id   uuid not null references public.establishments(id) on delete cascade,
   customer_id        uuid not null references public.profiles(id) on delete cascade,
   reward_description text,
-  stamps_spent       integer not null default 0 check (stamps_spent >= 0),
+  stamps_used        integer not null default 0 check (stamps_used >= 0),
   created_by         uuid references public.profiles(id),
   created_at         timestamptz not null default now()
 );

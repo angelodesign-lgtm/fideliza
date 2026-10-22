@@ -28,11 +28,13 @@ begin
 
   insert into public.loyalty_transactions
     (establishment_id, customer_id, amount, stamps_earned, created_by)
-  values (p_establishment_id, p_customer_id, p_amount, 1, auth.uid())
+  values (p_establishment_id, p_customer_id, p_amount,
+          case when v_program.benefit_type in ('pontos','ambos') then 1 else 0 end,
+          auth.uid())
   returning id into v_tx_id;
 
-  if v_program.benefit_type in ('cashback','ambos') and v_program.cashback_percentage > 0 then
-    v_cashback := round(p_amount * v_program.cashback_percentage / 100, 2);
+  if v_program.benefit_type in ('cashback','ambos') and v_program.cashback_percent > 0 then
+    v_cashback := round(p_amount * v_program.cashback_percent / 100, 2);
     if v_cashback > 0 then
       insert into public.cashback_transactions
         (establishment_id, customer_id, amount, transaction_type, purchase_transaction_id)
@@ -65,7 +67,7 @@ begin
   from public.loyalty_transactions
   where establishment_id = p_establishment_id and customer_id = p_customer_id;
 
-  select coalesce(sum(stamps_spent),0) into v_spent
+  select coalesce(sum(stamps_used),0) into v_spent
   from public.loyalty_redemptions
   where establishment_id = p_establishment_id and customer_id = p_customer_id;
 
@@ -74,7 +76,7 @@ begin
   end if;
 
   insert into public.loyalty_redemptions
-    (establishment_id, customer_id, reward_description, stamps_spent, created_by)
+    (establishment_id, customer_id, reward_description, stamps_used, created_by)
   values (p_establishment_id, p_customer_id, p_reward_description,
           v_program.stamps_required, auth.uid())
   returning id into v_id;
